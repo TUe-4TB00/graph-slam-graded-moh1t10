@@ -3,9 +3,9 @@ from helperfunctions import add_pose_from_global, add_landmark_measurement_from_
 import gtsam
 from gtsam.symbol_shorthand import L, X
 
-PRIOR_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.1, 0.1, 0.05]))  
-ODOMETRY_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.2, 0.2, 0.1]))  
-MEASUREMENT_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.05, 0.1])) 
+PRIOR_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.1, 0.1, 0.05]))  # (x, y, theta)
+ODOMETRY_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.2, 0.2, 0.1]))  # (dx, dy, dtheta)
+MEASUREMENT_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.05, 0.1]))  # (bearing, range)
 
 def add_pose(graph, initial_estimate, pose_5):
     pose_4 = initial_estimate.atPose2(X(4))
@@ -75,6 +75,9 @@ def minimize_errors(graph, initial_estimate, pose_options):
     best_landmark = None
     best_sum = float("inf")
 
+    # True positions of X(1), X(2), X(3)
+    true_positions = {1: (0, 0, 0), 2: (2, 0, 0), 3: (4, 0, 0)}
+
     for pose_key, pose_5 in pose_options.items():
         for landmark in [1, 2]:
             g = gtsam.NonlinearFactorGraph(graph)
@@ -85,14 +88,16 @@ def minimize_errors(graph, initial_estimate, pose_options):
             g = add_landmark_measurement(g, result, pose_5, landmark)
             result = optimize(g, est)
 
-            marginals = gtsam.Marginals(g, result)
+            # Error of each pose = absolute deviation from true position
+            list_of_errors = []
+            for i in [1, 2, 3]:
+                opt_pose = result.atPose2(X(i))
+                true_pose = gtsam.Pose2(*true_positions[i])
+                dx = abs(opt_pose.x() - true_pose.x())
+                dy = abs(opt_pose.y() - true_pose.y())
+                dtheta = abs(opt_pose.theta() - true_pose.theta())
+                list_of_errors.append(dx + dy + dtheta)
 
-            
-            list_of_errors = [
-                marginals.marginalCovariance(X(1)).sum(),
-                marginals.marginalCovariance(X(2)).sum(),
-                marginals.marginalCovariance(X(3)).sum(),
-            ]
             sum_of_errors = sum(list_of_errors)
 
             if sum_of_errors < best_sum:
